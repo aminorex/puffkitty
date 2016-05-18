@@ -1,0 +1,3 @@
+conf/lighttpd.conf /etc/lighttpd.conf
+conf/my.cnf /etc/mysql/my.cnf
+cron-scripts /usr/local/bin/block_nasty.py
