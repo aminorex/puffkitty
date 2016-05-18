@@ -110,6 +110,7 @@ def block_ip(ip):
 def help(args):
     stderr.write("""
 Usage: {0:s} [-v] [-n] [N]
+-a -- start from the epoch
 -v -- verbosity increment
 -n -- dryrun (report IPs, no blocking)
 N  -- integer failure count threshold precipitating a block
@@ -127,9 +128,12 @@ def main(args):
     threshold = 8
     verbosity = 0
     dryrun = False
+    epochal = False
     for arg in args:
         if arg and arg[0].isdigit():
             threshold = int(arg)
+        elif arg == '-a':
+            epochal = True
         elif arg == '-n':
             dryrun = True
         elif arg and len(arg) > 1 and arg[:2] == '-v':
@@ -150,7 +154,7 @@ def main(args):
     nfiles = 0
     paths = [ "/var/log/auth.log.{0:d}".format(ii) for ii in xrange(9,-1,-1) ]
     paths.append("/var/log/auth.log")
-    last_stamp = read_last(verbosity)
+    last_stamp = 0 if epochal else read_last(verbosity)
 
     for path in paths:
         na = -1
