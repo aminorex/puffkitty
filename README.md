@@ -1,4 +1,4 @@
-# nonce scripts
+# nonce scripts &c.
 
 Contents::
 
@@ -15,3 +15,15 @@ cron-scripts:
 	merit another inspection.  [preauth] failures before that time are 
 	not counted (or even read, mostly).
 
+conf:
+    
+    my.cnf --
+        Low memory mysqld configuration
+
+    lighttpd.conf --
+        lighttpd configuration for puffkitty
+
+meta:
+
+    puffykitty.pkgcfg --
+        repo to install path map
