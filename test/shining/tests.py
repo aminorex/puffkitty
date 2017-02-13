@@ -18,5 +18,9 @@ class SimpleTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    import xmlrunner
-    unittest.main(testRunner=xmlrunner.XMLTestRunner(output='test-reports'))
+    try:
+        import xmlrunner
+        xmlr = xmlrunner.XMLTestRunner(output='test-reports')
+        unittest.main(testRunner=xmlr)
+    except ImportError:
+        unittest.main()
