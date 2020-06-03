@@ -1,0 +1,211 @@
+#! /usr/bin/env bash
+
+# run a child process in the background but do not return until
+# it exits and/or some specific regular expression is observed in
+# its output stream.
+
+# this is used in the pipeline transformer shell commands in
+# src/pachyderm/pipeline/*.json when it needs to wait for fuseki
+# to be fully loaded before running another pipeline script command
+
+# usage is described by -h argument
+
+pgm=$(basename $0)
+pause=2
+cmd=''
+timeout=''
+quiet=false
+verbose=false
+kill=false
+remove=true
+tmpf=/var/tmp/waitfor.$$.log
+exprs=()
+expect=''
+child_dir=${CHILD_DIR:-.}
+
+# don't leave turds in /tmp:
+#
+fini() {
+  echo "$pgm: SIGNAL $* in $$." 1>&2
+  if $remove && [ -f "$tmpf" ]; then
+    rm $tmpf
+  fi
+  exit 5
+  return 6
+}
+
+trap fini 1 15 
+
+#
+# parse arguments
+#
+
+# set the value of a variable to a string
+setarg() {
+    varname="$1"
+    shift
+    value="$@"
+    if [ -z "$varname" ]; then
+	echo "$pgm: ERROR. setarg $expect, empty variable" 1>&2
+	exit 7
+    elif [ -z "$value" ]; then
+	echo "$pgm: WARNING. setarg ${expect:-$varname}, empty value" 1>&2
+    fi
+    eval "$varname='$value'"
+    expect=''
+    return 0
+}
+
+# set the value of a variable to a number
+setnum() {
+    varname="$1"
+    shift
+    value="$@"
+    case "$value" in
+    [1-9]*)
+	setarg $varname $value
+	return $?
+	;;
+    esac
+    echo "$pgm: ERROR. Non-numeric value $value for $varname." 1>&2
+    exit 8
+    return 1
+}
+
+for arg in $@; do
+
+  if [ ! -z "$expect" ]; then
+    case "$expect" in
+    expr)
+      exprs[${#exprs[*]}]="$arg"
+      expect=''
+      continue
+      ;;
+    child_dir)
+      setarg $expect "$arg"
+      ;;
+    tmpf)
+      setarg $expect "$arg"
+      remove=false
+      ;;
+    *)
+      setnum $expect "$arg"
+      continue
+      ;;
+    esac
+  fi
+
+  if [ ${#exprs[*]} -eq 0 ]; then
+    case $arg in
+    -*h*)
+      echo "Usage: $pgm [(-{t,k} TIMEOUT_SEC|-{n,q,k}|(-e REGEX)*|REGEX] CMD0 CMD1 ..." 1>&2
+      echo "  -C DIR    -- directory for child execution" 1>&2
+      echo "  -t T      -- timeout after T seconds, return status 1" 1>&2
+      echo "  -k T      -- kill child after T second timeout, return status 1" 1>&2
+      echo "  -p P      -- poll REGEX at P second intervals (default $pause)" 1>&2
+      echo "  -T TMP    -- set temporary file name" 1>&2
+      echo "  -n        -- do not remove temporary $tmpf on exit" 1>&2
+      echo "  -q        -- run quietly"
+      echo "  -e R      -- add R to REGEX list" 1>&2
+      echo "  REGEX     -- grep output via /var/tmp until grep REGEX matched" 1>&2
+      echo "  CMD{0..N} -- is the child command." 1>&2
+      exit 3
+      ;;
+    -T)
+      expect=tmpf
+      ;;
+    -t)
+      expect=timeout
+      ;;
+    -n)
+      remove=false
+      ;;
+    -p)
+      expect=pause
+      ;;
+    -k)
+      kill=true
+      if [ -z "$timeout" ]; then
+        expect=timeout
+      fi
+      ;;
+    -q)
+      quiet=true
+      ;;
+    -v)
+      verbose=true
+      ;;
+    -e)
+      expect=expr
+      ;;
+    -C)
+      expect=child_dir
+      ;;
+    [1-9*)
+      if [ "$timeout" = "0" ]; then
+        timeout=$arg
+        continue
+      else
+        echo "$pgm: ERROR. Initial argument must not  be numeric" 1>&2
+	exit 2
+      fi
+      ;;
+    *)
+      exprs[${#exprs[*]}]="$arg"
+      ;;
+    esac
+  else
+    cmd="$cmd $arg"
+  fi
+done
+
+if [ -z "$cmd" ]; then
+  echo "$pgm: ERROR: No command." 1>&2
+  exit 2
+fi
+
+#
+# run child process
+#
+
+cd ${child_dir}
+eval $cmd >$tmpf 2>&1 &
+child=$!
+ps $child >/dev/null
+if [ $? -gt 0 -o -z "$child" ]; then
+  echo "$pgm: ERROR: $cmd failed to spawn" 1>&2
+  exit 4
+elif $quiet; then
+  echo -n
+else
+  echo "$pgm: child pid $child - timeout ${timeout} - kill ${kill}"
+  ps $child
+fi
+$verbose && echo -n "$pgm: " && date 
+
+#
+# loop until an expr was matched in child stdout or timeout occurs
+#
+
+nsec=0
+timeout=${timeout:-0}
+
+while sleep $pause; do
+  nsec=$(( nsec + pause ))
+  for re in ${exprs[*]}; do
+    if grep -e "$re" $tmpf >/dev/null; then
+       $quiet || echo MATCHED "$re"
+       $remove && rm $tmpf
+       exit 0;
+    fi
+  done
+  $verbose && echo -n "$pgm: " && date 
+  if [ "$timeout" -gt 0 -a "$nsec" -gt "$timeout" ]; then
+    if [ $nsec -gt $timeout ]; then
+      $quiet || echo TIMEOUT $child
+      $kill && kill $child
+      $remove && rm $tmpf
+      exit 1
+    fi
+  fi
+done

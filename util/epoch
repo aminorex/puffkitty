@@ -1,0 +1,76 @@
+#!/usr/bin/env bash                                                                                            
+
+# return the modified time of the argument objects, which may be URLs or local paths
+# TODO -- support pfs, s3
+
+# Remote: $(date -d "$(wget --spider -S '$arg' 2>&1 | sed -n 's/.*Modified: *//p') +%s)
+# Local:  $(stat -c %Y "$arg")
+
+items=()
+stamps=()
+verbose=false
+quiet=false
+
+for arg in $@; do
+    case "$arg" in
+    -v)
+        verbose=true
+	;;
+    -q)
+        quiet=true
+	;;
+    [hf]t*p*://*)
+        items[${#items[*]}]="$arg"
+        dstr=$(wget --spider -S "$arg" 2>&1 | sed -n 's/.*Modified: *//p')
+	if [ -z "$dstr" ]; then
+	  echo "$0: ERROR: Remote '$arg' not found" 1>&2
+	  exit 2
+	fi
+	stamps[${#stamps[*]}]=$(date -d "$dstr" +%s 2>/dev/null)
+	if [ $? -gt 0 ]; then
+	  echo "$0: ERROR: Remote '$arg' stamp '$dstr' not parsed" 1>&2
+	  exit 2
+	fi
+	;;
+    *)
+        arg=${arg/file:\/\//}
+	if [ ! -f $arg ]; then
+	  echo "$0: ERROR: Unknown path '$arg'" 1>&2
+	  exit 2
+	fi
+	items[${#items[*]}]="$arg"
+	stamps[${#stamps[*]}]=$(stat -c %Y "$arg")
+	if [ $? -gt 0 ]; then
+	  echo "$0: ERROR: Local '$arg' stat failed" 1>&2
+	  exit 2
+	fi
+	;;
+    esac
+done
+
+if [ ${#items[*]} -eq 0 ]; then
+  echo "$0: ERROR: Remote or local item required" 1>&2
+  exit 2
+fi
+
+for ii in $(seq ${#items[*]}); do
+    jj=$(( ii - 1 ))
+    if $quiet; then
+      echo ${stamps[$jj]}
+    else
+      echo ${stamps[$jj]} ${items[$jj]}
+    fi
+done
+
+if [ ${#items[*]} -eq 2 ]; then
+    if [ ${#stamps[0]} -gt ${#stamps[1]} ]; then
+	$verbose && echo fail
+	exit 1
+    else
+	$verbose && echo pass
+	exit 0
+    fi
+else
+    exit 0
+fi
+
